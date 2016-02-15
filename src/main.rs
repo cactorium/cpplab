@@ -17,7 +17,7 @@ use script::exec_cpp;
 
 static ERROR_PAGE: &'static [u8] = b"
 PAGE NOT FOUND
-CLICK HARDER
+PLEASE CLICK HARDER
 ";
 
 fn parse_num(s: &String) -> Option<usize> {
@@ -51,24 +51,23 @@ fn handle_stuff(req: Request, res: Response) {
     let mut msg = ERROR_PAGE;
     if uri_strings.len() == 1 {
         match parse_num(&uri_strings[0]) {
-            Some(n) => {
-                if n >= 0 && n < pages.len() {
-                    msg = pages[n];
-                }
+            Some(n) => match req.method {
+                Method::Get => {
+                    if n < pages.len() {
+                        msg = pages[n];
+                    }
+                },
+                Method::Post => {
+                    let n = parse_num(&uri_strings[0]).unwrap();
+                    if n < alter_fns.len() {
+                        exec_cpp(alter_fns[n](String::from("foo")));
+                        msg = ERROR_PAGE;
+                    }
+                },
+                _ => ()
             },
-            None => {},
-        }
-    } else {
-        assert!(req.method == Method::Post);
-        match parse_num(&uri_strings[0]) {
-            Some(n) => {
-                if n >= 0 && n < alter_fns.len() {
-                    exec_cpp(alter_fns[n](String::from("foo")));
-                    msg = ERROR_PAGE;
-                }
-            },
-            None => {},
-        }
+            None => ()
+        };
     }
 
     res.send(msg).unwrap();
