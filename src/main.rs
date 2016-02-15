@@ -14,8 +14,9 @@ use hyper::uri::RequestUri::*;
 use hyper::method::Method;
 
 use script::exec_cpp;
+use script::ExecResult;
 
-static ERROR_PAGE: &'static [u8] = b"
+static ERROR_PAGE: &'static str = "
 PAGE NOT FOUND
 PLEASE CLICK HARDER
 ";
@@ -46,41 +47,56 @@ fn handle_stuff(req: Request, res: Response) {
                                           .map(|s| String::from(s))
                                           .collect();
     println!("{:?}: {}: {} {:?}", SystemTime::now(), req.remote_addr, req.method, uri_strings);
-    let pages = vec![planets::PAGE_TEXT];
-    let alter_fns = vec![planets::mod_cpp];
-    let mut msg = ERROR_PAGE;
+    let experiments = vec![(planets::PAGE_TEXT, planets::mod_cpp, planets::process_out)];
+    let mut msg = String::from(ERROR_PAGE);
     if uri_strings.len() == 1 {
         match parse_num(&uri_strings[0]) {
-            Some(n) => match req.method {
-                Method::Get => {
-                    if n < pages.len() {
-                        msg = pages[n];
+            Some(n) => {
+                if n < experiments.len() {
+                    let (page, alter, process) = experiments[n];
+                    match req.method {
+                        Method::Get => {
+                            msg = String::from(page);
+                        },
+                        Method::Post => {
+                            let input = String::from("foo");
+                            let processed_input = alter(input);
+                            let results = exec_cpp(processed_input);
+                            match results {
+                                ExecResult::Success(warnings, output) => {
+                                    msg = process(warnings, output);
+                                },
+                                ExecResult::IoFail(e) => {
+                                },
+                                ExecResult::Timeout => {
+                                    msg = String::from("{timeout:true}");
+                                },
+                                ExecResult::CompileFail(s) => {
+                                    msg = s;
+                                }
+                            }
+                        },
+                        _ => ()
                     }
-                },
-                Method::Post => {
-                    let n = parse_num(&uri_strings[0]).unwrap();
-                    if n < alter_fns.len() {
-                        exec_cpp(alter_fns[n](String::from("foo")));
-                        msg = ERROR_PAGE;
-                    }
-                },
-                _ => ()
+                }
             },
             None => ()
         };
     }
 
-    res.send(msg).unwrap();
+    res.send(msg.as_bytes()).unwrap();
 }
 
 fn main() {
     println!("server start!");
-    /* TODO: convert this into a test!
-    exec_cpp(planets::mod_cpp(String::from("
+
+    // TODO: convert this into a test!
+    let q = exec_cpp(planets::mod_cpp(String::from("
 Force CalculateForces(const Body &a, const Body &b) {
     /// your code here!
     return Force{0.0, 0.0};
 }")));
-*/
+    println!("{:?}", q);
+
     Server::http("127.0.0.1:3000").unwrap().handle(handle_stuff);
 }

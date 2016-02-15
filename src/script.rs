@@ -1,23 +1,29 @@
 extern crate rand;
+extern crate wait_timeout;
 
 use std::fs::File;
 use std::process::Command;
+use std::process::Stdio;
 
-use std::io::Error;
+// TODO: Figure out why it needs to be done this way
+use self::wait_timeout::ChildExt;
+
+use std::time::Duration;
+
+use std::io::Read;
 use std::io::Write;
+use std::io::Error;
 
-pub struct Point {
-    x: f64,
-    y: f64
-}
 
-pub enum ExecError {
+#[derive(Debug)]
+pub enum ExecResult {
+    Success(String, String),
     IoFail(Error),
-    TimeOut,
+    Timeout,
     CompileFail(String)
 }
 
-pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
+pub fn exec_cpp(cpp: String) -> ExecResult {
     let file_num: u64 = rand::random();
     // add the source code to a tmp/*.cc file
     let file_name = format!("tmp/{}.cc", file_num);
@@ -25,11 +31,11 @@ pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
     {
         let mut file = match File::create(&file_name) {
             Ok(f) => f,
-            Err(e) => { return Err(ExecError::IoFail(e)); }
+            Err(e) => { return ExecResult::IoFail(e); }
         };
         match file.write_all(cpp.as_bytes()) {
             Ok(_) => (),
-            Err(e) => { return Err(ExecError::IoFail(e)); }
+            Err(e) => { return ExecResult::IoFail(e); }
         }
     }
     let mut warnings = String::new();
@@ -41,6 +47,7 @@ pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
                                 .arg("-std=c++11")
                                 .arg("-Wall")
                                 .arg(&file_name)
+                                .stdin(Stdio::piped())
                                 .output();
         match results {
             Ok(output) => {
@@ -49,14 +56,46 @@ pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
                 println!("compile run: status {}, stderr: {}, stdout: {}",
                          output.status, stderr, stdout);
                 if !output.status.success() {
-                    return Err(ExecError::CompileFail(stderr));
+                    return ExecResult::CompileFail(stderr);
                 }
                 warnings = stderr;
             },
-            Err(e) => { return Err(ExecError::IoFail(e)); }
+            Err(e) => { return ExecResult::IoFail(e); }
         }
     }
+    // TODO: SECURE wrapper
     // then run it with a secure wrapper
+    let output = {
+        let mut child = {
+            let mut command = Command::new("sudo")
+                                    .arg("-u")
+                                    .arg("lunarknights")
+                                    .arg("-s")
+                                    .arg(output_name)
+                                    .stdout(Stdio::piped())
+                                    .spawn();
+            match command {
+                Ok(c) => c,
+                Err(e) => { return ExecResult::IoFail(e); }
+            }
+        };
+        let maybe_exited = match child.wait_timeout(Duration::from_millis(1000)) {
+            Ok(results) => results,
+            Err(e) => { return ExecResult::IoFail(e); }
+        };
+        match maybe_exited {
+            Some(_) => {
+                // grab data from child.stdout
+                let mut ret = String::new();
+                child.stdout.unwrap().read_to_string(&mut ret).unwrap();
+                ret
+            },
+            None => {
+                child.kill().unwrap();
+                return ExecResult::Timeout;
+            }
+        }
+    };
     // and return the parsed standard output
-    Ok((String::new(), vec![]))
+    ExecResult::Success(warnings, output)
 }

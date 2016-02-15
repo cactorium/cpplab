@@ -1,4 +1,4 @@
-pub static PAGE_TEXT: &'static [u8] = b"
+pub static PAGE_TEXT: &'static str = "
 <!DOCTYPE html5>
 <html>
 <style>
@@ -92,4 +92,20 @@ int main() {
 }
 
                  ") + s.as_str()
+}
+
+
+pub struct Point {
+    x: f64,
+    y: f64
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Point {
+        Point { x: x, y: y }
+    }
+}
+
+pub fn process_out(warnings: String, input: String) -> String {
+    String::from("foo!")
 }
