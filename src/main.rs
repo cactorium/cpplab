@@ -75,5 +75,12 @@ fn handle_stuff(req: Request, res: Response) {
 
 fn main() {
     println!("server start!");
+    /* TODO: convert this into a test!
+    exec_cpp(planets::mod_cpp(String::from("
+Force CalculateForces(const Body &a, const Body &b) {
+    /// your code here!
+    return Force{0.0, 0.0};
+}")));
+*/
     Server::http("127.0.0.1:3000").unwrap().handle(handle_stuff);
 }

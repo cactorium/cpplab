@@ -13,6 +13,7 @@ pub struct Point {
 
 pub enum ExecError {
     IoFail(Error),
+    TimeOut,
     CompileFail(String)
 }
 
@@ -31,7 +32,7 @@ pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
             Err(e) => { return Err(ExecError::IoFail(e)); }
         }
     }
-    let mut warnings = Vec::<String>::new();
+    let mut warnings = String::new();
     // compile it, returning if there's any errors
     {
         let results = Command::new("g++")
@@ -43,14 +44,14 @@ pub fn exec_cpp(cpp: String) -> Result<(String, Vec<Point>), ExecError> {
                                 .output();
         match results {
             Ok(output) => {
+                let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+                let stdout = String::from_utf8(output.stdout.clone()).unwrap();
                 println!("compile run: status {}, stderr: {}, stdout: {}",
-                         output.status,
-                         String::from_utf8(output.stderr.clone()).unwrap(),
-                         String::from_utf8(output.stdout.clone()).unwrap());
+                         output.status, stderr, stdout);
                 if !output.status.success() {
-                    return Err(ExecError::CompileFail(
-                            String::from_utf8(output.stderr.clone()).unwrap()));
+                    return Err(ExecError::CompileFail(stderr));
                 }
+                warnings = stderr;
             },
             Err(e) => { return Err(ExecError::IoFail(e)); }
         }

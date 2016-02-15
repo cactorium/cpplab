@@ -9,16 +9,18 @@ textarea {
 <body>
 <pre>
 struct Point {
-    double x, y;
+  double x, y;
 };
 
-struct Force {
-    double x, y;
+struct Vector {
+  double x, y;
 };
 
-struct Planet {
-    Point position;
-    double mass;
+typedef Vector Force;
+
+struct Body {
+  Point position;
+  double mass;
 };
 
 </pre>
@@ -27,5 +29,7 @@ void CalculateForces(const Planet &a, const Planet &b, Force &fab) {
     /// your code here!
 }
 </textarea>
+<p>
+<button id=submitcode>Submit!</button>
 </body>
 </html>
