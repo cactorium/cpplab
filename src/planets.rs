@@ -7,6 +7,28 @@ textarea {
   font-family:Consolas,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New, monospace;
 }
 </style>
+<script>
+var waiting = false
+window.onload = function() {
+  document.getElementById('submitcode').addEventListener('click', function() {
+    if (waiting) {
+      return
+    }
+    var req = new XMLHttpRequest()
+    req.open('POST', document.location)
+    req.addEventListener('load', function(e) {
+    })
+    req.addEventListener('error', function(e) {
+    })
+    req.addEventListener('loadend', function() {
+      console.log('request completed')
+      waiting = false
+    })
+    req.send(document.getElementById('codebox').value)
+  })
+}
+</script>
+
 <body>
 <pre>
 
@@ -28,11 +50,17 @@ struct Body {
 };
 
 </pre>
-<textarea cols=100 rows=40>
+<textarea id=codebox cols=100 rows=40>
 Force CalculateForces(const Body &a, const Body &b) {
     /// your code here!
 }
 </textarea>
+<p>
+<button id=submitcode>Submit!</button>
+<p>
+<div id=errorbox></div>
+<p>
+<canvas id=planets></canvas>
 </body>
 </html>
 ";

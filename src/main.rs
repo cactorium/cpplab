@@ -1,8 +1,10 @@
-#![feature(time2)]
+#![feature(time2,io)]
 extern crate hyper;
 
 mod script;
 mod planets;
+
+use std::io::Read;
 
 use std::time::SystemTime;
 
@@ -36,7 +38,7 @@ fn parse_num(s: &String) -> Option<usize> {
 // TODO: Restructure so that we can do something other than panicking on failure
 fn handle_stuff(req: Request, res: Response) {
     let uri_str = match req.uri {
-        AbsolutePath(s) => vec![s],
+        AbsolutePath(ref s) => vec![s.clone()],
         AbsoluteUri(ref url) => Vec::from(url.path().unwrap()),
         _ => vec![String::from("BADPATH")]
     };
@@ -59,7 +61,7 @@ fn handle_stuff(req: Request, res: Response) {
                             msg = String::from(page);
                         },
                         Method::Post => {
-                            let input = String::from("foo");
+                            let input = req.chars().map(|c| c.unwrap()).collect();
                             let processed_input = alter(input);
                             let results = exec_cpp(processed_input);
                             match results {
