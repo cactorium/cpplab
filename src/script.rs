@@ -19,7 +19,7 @@ use std::io::Error;
 pub enum ExecResult {
     Success(String, String),
     IoFail(Error),
-    Timeout,
+    Timeout(String),
     CompileFail(String)
 }
 
@@ -67,7 +67,7 @@ pub fn exec_cpp(cpp: String) -> ExecResult {
     // then run it with a secure wrapper
     let output = {
         let mut child = {
-            let mut command = Command::new("sudo")
+            let command = Command::new("sudo")
                                     .arg("-u")
                                     .arg("lunarknights")
                                     .arg("-s")
@@ -91,8 +91,23 @@ pub fn exec_cpp(cpp: String) -> ExecResult {
                 ret
             },
             None => {
-                child.kill().unwrap();
-                return ExecResult::Timeout;
+                let kill_child = Command::new("sudo")
+                                        .arg("kill")
+                                        .arg(format!("{}", child.id()))
+                                        .status();
+
+                 match kill_child {
+                    Ok(s) => {
+                        if !s.success() {
+                            println!("failed to kill child {}", child.id());
+                        }
+                    },
+                    Err(e) => {
+                        println!("io error on child kill: {:?}", e);
+                        return ExecResult::Timeout(warnings);
+                    }
+                }
+                return ExecResult::Timeout(warnings);
             }
         }
     };

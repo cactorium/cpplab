@@ -1,5 +1,10 @@
-#![feature(time2,io)]
+#![feature(time2, io, custom_derive, plugin)]
+#![plugin(serde_macros)]
 extern crate hyper;
+
+
+extern crate serde;
+extern crate serde_json;
 
 mod script;
 mod planets;
@@ -22,6 +27,30 @@ static ERROR_PAGE: &'static str = "
 PAGE NOT FOUND
 PLEASE CLICK HARDER
 ";
+
+#[derive(Serialize, Deserialize)]
+struct IoFail {
+    io_err: bool,
+    msgs: String
+}
+
+#[derive(Serialize, Deserialize)]
+struct Timeout {
+    timeout: bool,
+    msgs: String
+}
+
+impl Timeout {
+    fn new(s: String) -> Timeout {
+        Timeout { timeout: true, msgs: s }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct CompileFail {
+    failed: bool,
+    msgs: String
+}
 
 fn parse_num(s: &String) -> Option<usize> {
     let mut n = 0;
@@ -69,12 +98,21 @@ fn handle_stuff(req: Request, res: Response) {
                                     msg = process(warnings, output);
                                 },
                                 ExecResult::IoFail(e) => {
+                                    let payload = IoFail {
+                                        io_err: true,
+                                        msgs: format!("{:?}", e)
+                                    };
+                                    msg = serde_json::to_string(&payload).unwrap();
                                 },
-                                ExecResult::Timeout => {
-                                    msg = String::from("{timeout:true}");
+                                ExecResult::Timeout(s) => {
+                                    msg = serde_json::to_string(&Timeout::new(s)).unwrap();
                                 },
                                 ExecResult::CompileFail(s) => {
-                                    msg = s;
+                                    let payload = CompileFail {
+                                        failed: true,
+                                        msgs: s
+                                    };
+                                    msg = serde_json::to_string(&payload).unwrap();
                                 }
                             }
                         },
@@ -86,12 +124,14 @@ fn handle_stuff(req: Request, res: Response) {
         };
     }
 
+    // println!("{}", msg);
     res.send(msg.as_bytes()).unwrap();
 }
 
 fn main() {
     println!("server start!");
 
+    /*
     // TODO: convert this into a test!
     let q = exec_cpp(planets::mod_cpp(String::from("
 Force CalculateForces(const Body &a, const Body &b) {
@@ -99,6 +139,7 @@ Force CalculateForces(const Body &a, const Body &b) {
     return Force{0.0, 0.0};
 }")));
     println!("{:?}", q);
+    */
 
-    Server::http("127.0.0.1:3000").unwrap().handle(handle_stuff);
+    let _ = Server::http("localhost:3000").unwrap().handle(handle_stuff);
 }

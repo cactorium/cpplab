@@ -1,22 +1,82 @@
+extern crate serde;
+extern crate serde_json;
+
 pub static PAGE_TEXT: &'static str = "
 <!DOCTYPE html5>
 <html>
 <style>
+div {
+  border:1px solid #999999;
+  font-family:Consolas,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New, monospace;
+}
 textarea {
   border:1px solid #999999;
   font-family:Consolas,Monaco,Lucida Console,Liberation Mono,DejaVu Sans Mono,Bitstream Vera Sans Mono,Courier New, monospace;
 }
 </style>
 <script>
+var pts = null
 var waiting = false
 window.onload = function() {
-  document.getElementById('submitcode').addEventListener('click', function() {
+    var button = document.getElementById('submitcode')
+    var box = document.getElementById('codebox')
+    var cvs = document.getElementById('planets')
+    var errorbox = document.getElementById('errorbox')
+
+    var ctx = cvs.getContext('2d')
+
+    button.addEventListener('click', function() {
     if (waiting) {
       return
     }
     var req = new XMLHttpRequest()
     req.open('POST', document.location)
+    req.responseType = 'json'
     req.addEventListener('load', function(e) {
+        var body = req.response
+        if (body.msgs) {
+            errorbox.textContent = body.msgs
+        } else {
+            errorbox.textContent = ''
+        }
+        if (body.timeout) {
+            statusbox.textContent = 'code timed out'
+        }
+        if (body.failed) {
+            statusbox.textContent = 'compilation failed'
+        }
+        if (body.io_err) {
+            statusbox.textContent = 'io error; something really bad happened'
+        }
+        if (!body.timeout && !body.failed && !body.io_err) {
+            statusbox.textContent = 'compiled successfully!'
+
+            // TODO: Draw to canvas
+            // figure out the scale
+            var points = body.points
+            var width = cvs.width, height = cvs.height
+            var maxX = Math.max.apply(null, points.map(function(p) { return Math.abs(p.x);}))
+            var maxY = Math.max.apply(null, points.map(function(p) { return Math.abs(p.y);}))
+            var scale = 0.4*Math.min(width, height)/Math.max(maxX, maxY)
+
+            ctx.clearRect(0, 0, width, height)
+            // draw sun
+            ctx.fillStyle = 'yellow'
+            ctx.strokeStyle = 'yellow'
+            ctx.beginPath()
+            ctx.arc(width/2, height/2, scale*1.496e+11/8, 0, 2*Math.PI, false)
+            ctx.fill()
+            // draw orbit
+            ctx.strokeStyle = 'black'
+            pts = points.map(function(p) {
+                return {x: width/2+scale*p.x, y: height/2+scale*p.y}
+            })
+            ctx.moveTo(pts[0].x, pts[0].y)
+            for (var i = 1; i < points.length; i++) {
+                ctx.lineTo(pts[i].x, pts[i].y)
+            }
+            ctx.stroke()
+        }
     })
     req.addEventListener('error', function(e) {
     })
@@ -50,7 +110,7 @@ struct Body {
 };
 
 </pre>
-<textarea id=codebox cols=100 rows=40>
+<textarea id=codebox cols=100 rows=20>
 Force CalculateForces(const Body &a, const Body &b) {
     /// your code here!
 }
@@ -58,9 +118,11 @@ Force CalculateForces(const Body &a, const Body &b) {
 <p>
 <button id=submitcode>Submit!</button>
 <p>
-<div id=errorbox></div>
+<div id=statusbox></div>
 <p>
-<canvas id=planets></canvas>
+<div id=errorbox style=white-space:pre-line;></div>
+<p>
+<canvas id=planets width=640 height=640></canvas>
 </body>
 </html>
 ";
@@ -119,13 +181,19 @@ int main() {
   return 0;
 }
 
-                 ") + s.as_str()
+") + s.as_str()
 }
 
-
-pub struct Point {
+#[derive(Serialize, Deserialize)]
+struct Point {
     x: f64,
     y: f64
+}
+
+#[derive(Serialize, Deserialize)]
+struct PlanetResults {
+    msgs: String,
+    points: Vec<Point>
 }
 
 impl Point {
@@ -135,5 +203,13 @@ impl Point {
 }
 
 pub fn process_out(warnings: String, input: String) -> String {
-    String::from("foo!")
+    let points = input.lines().map(|ln| {
+        let split_ln = ln.split(',').collect::<Vec<_>>();
+        Point::new(split_ln[0].parse().unwrap(), split_ln[1].parse().unwrap())
+    }).collect::<Vec<_>>();
+
+    serde_json::to_string(&PlanetResults{
+        msgs: warnings,
+        points: points
+    }).unwrap()
 }
