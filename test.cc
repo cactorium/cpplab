@@ -2,6 +2,14 @@
 #include <iostream>
 #include <string>
 
+#include <stdlib.h>
+
+#include <sys/prctl.h>     /* prctl */
+#include <linux/seccomp.h> /* seccomp's constants */
+#include <unistd.h>        /* for syscall */
+#include <sys/syscall.h>   /* For SYS_xxx definitions */
+
+
 struct Point {
   double x, y;
 };
@@ -31,6 +39,8 @@ struct Body {
 Force CalculateForces(const Body &a, const Body &b);
 
 int main() {
+  std::cout << " ";
+  prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT);
   auto sun = Body{Point{0.0, 0.0}, 1.989e+30};
   // geo centric :D
   auto earth = Body{Point{1.4960e+11, 0.0}, 5.972e+24};
@@ -48,7 +58,9 @@ int main() {
     earth.position.x += earthVel.x * TIME_STEP;
     earth.position.y += earthVel.y * TIME_STEP;
   }
-  return 0;
+
+  std::cout.flush();
+  syscall(SYS_exit, 0);
 }
 
 Force CalculateForces(const Body &a, const Body &b) {
