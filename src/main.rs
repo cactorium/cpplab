@@ -5,19 +5,27 @@ extern crate hyper;
 extern crate serde;
 extern crate serde_json;
 
+extern crate flate2;
+
 mod script;
 mod planets;
 
+use std::borrow::Borrow;
+
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{Read, Write, Cursor};
 use std::time::SystemTime;
 
 use hyper::Server;
 use hyper::net::Fresh;
 use hyper::server::{Request, Response, Handler};
 
+use hyper::header::{AcceptEncoding, ContentEncoding, Encoding};
+
 use hyper::uri::RequestUri::*;
 use hyper::method::Method;
+
+use flate2::{GzBuilder, Compression};
 
 use script::exec_cpp;
 use script::ExecResult;
@@ -125,10 +133,32 @@ fn route_stuff(map: &RouteMap, req: Request) -> String {
 }
 
 // TODO: Restructure so that we can do something other than panicking on failure
-fn handle_stuff(routes: &RouteMap, req: Request, res: Response) {
+fn handle_stuff(routes: &RouteMap, req: Request, mut res: Response) {
     // println!("{}", msg);
+    let accept_content = if let Some(&AcceptEncoding(ref content)) = req.headers.get::<AcceptEncoding>() {
+        content.iter().any(|h| h.item == Encoding::Gzip)
+    } else {
+        false
+    };
     let msg = route_stuff(routes, req);
-    res.send(msg.as_bytes()).unwrap();
+    if accept_content {
+        let mut msg_dst = Cursor::new(Vec::<u8>::new());
+        {
+            let mut gzipped_writer = GzBuilder::new()
+                                    .write(&mut msg_dst, Compression::Fast);
+
+            let _ = gzipped_writer.write(msg.as_bytes()).unwrap();
+            let _ = gzipped_writer.finish().unwrap();
+        }
+
+        {
+            let mut headers = res.headers_mut();
+            headers.set(ContentEncoding(vec![Encoding::Gzip]));
+        }
+        res.send(msg_dst.get_ref().borrow()).unwrap();
+    } else {
+        res.send(msg.as_bytes()).unwrap();
+    }
 }
 
 struct StuffHandler {
