@@ -10,10 +10,8 @@ extern crate flate2;
 mod script;
 mod planets;
 
-use std::borrow::Borrow;
-
 use std::collections::HashMap;
-use std::io::{Read, Write, Cursor};
+use std::io::{Read, Write};
 use std::time::SystemTime;
 
 use hyper::Server;
@@ -132,7 +130,6 @@ fn route_stuff(map: &RouteMap, req: Request) -> String {
     }
 }
 
-// TODO: Restructure so that we can do something other than panicking on failure
 fn handle_stuff(routes: &RouteMap, req: Request, mut res: Response) {
     // println!("{}", msg);
     let accept_content = if let Some(&AcceptEncoding(ref content)) = req.headers.get::<AcceptEncoding>() {
@@ -142,20 +139,18 @@ fn handle_stuff(routes: &RouteMap, req: Request, mut res: Response) {
     };
     let msg = route_stuff(routes, req);
     if accept_content {
-        let mut msg_dst = Cursor::new(Vec::<u8>::new());
-        {
-            let mut gzipped_writer = GzBuilder::new()
-                                    .write(&mut msg_dst, Compression::Fast);
-
-            let _ = gzipped_writer.write(msg.as_bytes()).unwrap();
-            let _ = gzipped_writer.finish().unwrap();
-        }
-
         {
             let mut headers = res.headers_mut();
             headers.set(ContentEncoding(vec![Encoding::Gzip]));
         }
-        res.send(msg_dst.get_ref().borrow()).unwrap();
+
+        let res_stream = res.start().unwrap();
+        let mut gzipped_writer = GzBuilder::new()
+                                .write(res_stream, Compression::Fast);
+        let _ = gzipped_writer.write(msg.as_bytes()).unwrap();
+
+        let res_done = gzipped_writer.finish().unwrap();
+        res_done.end().unwrap();
     } else {
         res.send(msg.as_bytes()).unwrap();
     }
