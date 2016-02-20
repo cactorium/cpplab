@@ -2,26 +2,31 @@
 #![plugin(serde_macros)]
 extern crate hyper;
 
-
 extern crate serde;
 extern crate serde_json;
 
 mod script;
 mod planets;
 
+use std::collections::HashMap;
 use std::io::Read;
-
 use std::time::SystemTime;
 
 use hyper::Server;
-use hyper::server::Request;
-use hyper::server::Response;
+use hyper::net::Fresh;
+use hyper::server::{Request, Response, Handler};
 
 use hyper::uri::RequestUri::*;
 use hyper::method::Method;
 
 use script::exec_cpp;
 use script::ExecResult;
+
+static HOME_PAGE: &'static str = "
+HELLO
+THERE IS NO HOME PAGE YET
+THIS WILL BE FIXED EVENTUALLY
+";
 
 static ERROR_PAGE: &'static str = "
 PAGE NOT FOUND
@@ -52,20 +57,18 @@ struct CompileFail {
     msgs: String
 }
 
-fn parse_num(s: &String) -> Option<usize> {
-    let mut n = 0;
-    for c in s.chars() {
-        if c >= '0' && c <= '9' {
-            n = 10*n + ((c as usize)-('0' as usize));
-        } else {
-            return None;
-        }
-    }
-    Some(n)
+type AlterFn = Box<Fn(String) -> String>;
+type RespFn = Box<Fn(String, String) -> String>;
+type RouteMap = HashMap<String, (&'static str, AlterFn, RespFn)>;
+
+fn route_map() -> RouteMap {
+    let mut tmp: RouteMap = HashMap::new();
+    tmp.insert(String::from("planets"), 
+                 (planets::PAGE_TEXT, Box::new(planets::mod_cpp), Box::new(planets::process_out)));
+    tmp
 }
 
-// TODO: Restructure so that we can do something other than panicking on failure
-fn handle_stuff(req: Request, res: Response) {
+fn route_stuff(map: &RouteMap, req: Request) -> String {
     let uri_str = match req.uri {
         AbsolutePath(ref s) => vec![s.clone()],
         AbsoluteUri(ref url) => Vec::from(url.path().unwrap()),
@@ -78,54 +81,67 @@ fn handle_stuff(req: Request, res: Response) {
                                           .map(|s| String::from(s))
                                           .collect();
     println!("{:?}: {}: {} {:?}", SystemTime::now(), req.remote_addr, req.method, uri_strings);
-    let experiments = vec![(planets::PAGE_TEXT, planets::mod_cpp, planets::process_out)];
-    let mut msg = String::from(ERROR_PAGE);
-    if uri_strings.len() == 1 {
-        match parse_num(&uri_strings[0]) {
-            Some(n) => {
-                if n < experiments.len() {
-                    let (page, alter, process) = experiments[n];
-                    match req.method {
-                        Method::Get => {
-                            msg = String::from(page);
-                        },
-                        Method::Post => {
-                            let input = req.chars().map(|c| c.unwrap()).collect();
-                            let processed_input = alter(input);
-                            let results = exec_cpp(processed_input);
-                            match results {
-                                ExecResult::Success(warnings, output) => {
-                                    msg = process(warnings, output);
-                                },
-                                ExecResult::IoFail(e) => {
-                                    let payload = IoFail {
-                                        io_err: true,
-                                        msgs: format!("{:?}", e)
-                                    };
-                                    msg = serde_json::to_string(&payload).unwrap();
-                                },
-                                ExecResult::Timeout(s) => {
-                                    msg = serde_json::to_string(&Timeout::new(s)).unwrap();
-                                },
-                                ExecResult::CompileFail(s) => {
-                                    let payload = CompileFail {
-                                        failed: true,
-                                        msgs: s
-                                    };
-                                    msg = serde_json::to_string(&payload).unwrap();
-                                }
-                            }
-                        },
-                        _ => ()
-                    }
-                }
-            },
-            None => ()
-        };
+    if uri_strings.len() < 1 {
+        return String::from(HOME_PAGE);
     }
+    match map.get(&uri_strings[0]) {
+        Some (&(get_string, ref alter_fn, ref resp_fn)) => {
+            match req.method {
+                Method::Get => {
+                    String::from(get_string)
+                },
+                Method::Post => {
+                    let input = req.chars().map(|c| c.unwrap()).collect();
+                    let processed_input = alter_fn(input);
+                    let results = exec_cpp(processed_input);
+                    match results {
+                        ExecResult::Success(warnings, output) => {
+                            resp_fn(warnings, output)
+                        },
+                        ExecResult::IoFail(e) => {
+                            let payload = IoFail {
+                                io_err: true,
+                                msgs: format!("{:?}", e)
+                            };
+                            serde_json::to_string(&payload).unwrap()
+                        },
+                        ExecResult::Timeout(s) => {
+                            serde_json::to_string(&Timeout::new(s)).unwrap()
+                        },
+                        ExecResult::CompileFail(s) => {
+                            let payload = CompileFail {
+                                failed: true,
+                                msgs: s
+                            };
+                            serde_json::to_string(&payload).unwrap()
+                        }
+                    }
+                },
+                _ => String::from(ERROR_PAGE),
+            }
+        },
+        None => String::from(ERROR_PAGE),
+    }
+}
 
+// TODO: Restructure so that we can do something other than panicking on failure
+fn handle_stuff(routes: &RouteMap, req: Request, res: Response) {
     // println!("{}", msg);
+    let msg = route_stuff(routes, req);
     res.send(msg.as_bytes()).unwrap();
+}
+
+struct StuffHandler {
+    routes: RouteMap
+}
+
+unsafe impl Send for StuffHandler {}
+unsafe impl Sync for StuffHandler {}
+
+impl Handler for StuffHandler {
+    fn handle<'a, 'k> (&'a self, req: Request<'a, 'k>, resp: Response<'a, Fresh>) {
+        handle_stuff(&self.routes, req, resp)
+    }
 }
 
 fn main() {
@@ -141,5 +157,6 @@ Force CalculateForces(const Body &a, const Body &b) {
     println!("{:?}", q);
     */
 
-    let _ = Server::http("localhost:3000").unwrap().handle(handle_stuff);
+    let handler = StuffHandler{ routes: route_map() };
+    let _ = Server::http("localhost:3000").unwrap().handle(handler);
 }
