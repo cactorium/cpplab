@@ -170,7 +170,7 @@ struct Body {
 Force CalculateForces(const Body &a, const Body &b);
 
 int main() {
-  std::cout << " ";
+  std::cout << \" \";
   prctl(PR_SET_SECCOMP, SECCOMP_MODE_STRICT);
   auto sun = Body{Point{0.0, 0.0}, 1.989e+30};
   // geo centric :D
